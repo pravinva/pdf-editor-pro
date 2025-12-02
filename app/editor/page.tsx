@@ -1,15 +1,45 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import FileUpload from '@/components/FileUpload';
 import LoadingSpinner from '@/components/LoadingSpinner';
+import PDFViewer from '@/components/PDFViewer';
+import SignatureCanvas from '@/components/SignatureCanvas';
+import FormFiller from '@/components/FormFiller';
+import Toolbar, { Tool } from '@/components/Toolbar';
+import PageNavigator from '@/components/PageNavigator';
+import {
+  extractFormFields,
+  fillFormFields,
+  performSmartOCR,
+  downloadBlob
+} from '@/lib/api-client';
+import { embedSignatureInPDF, downloadPDF } from '@/lib/pdf-utils';
 
 export default function EditorPage() {
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // UI state
+  const [currentTool, setCurrentTool] = useState<Tool>('select');
+  const [showSignatureCanvas, setShowSignatureCanvas] = useState(false);
+  const [showFormFiller, setShowFormFiller] = useState(false);
+  const [showOCRPanel, setShowOCRPanel] = useState(false);
+
+  // PDF state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(0);
+  const [formFields, setFormFields] = useState<any[]>([]);
+  const [savedSignatures, setSavedSignatures] = useState<string[]>([]);
+
+  // OCR state
+  const [ocrResults, setOcrResults] = useState<any>(null);
+  const [ocrLoading, setOcrLoading] = useState(false);
+
+  // Handle file selection
   const handleFileSelect = async (file: File) => {
     setLoading(true);
     setError(null);
@@ -24,10 +54,17 @@ export default function EditorPage() {
         throw new Error('File size must be less than 50MB');
       }
 
-      setPdfFile(file);
+      // Create object URL for PDF.js
+      const url = URL.createObjectURL(file);
 
-      // TODO: Initialize PDF viewer here
-      // This will be implemented when integrating PDF.js viewer
+      setPdfFile(file);
+      setPdfUrl(url);
+
+      // Extract form fields automatically
+      const formResult = await extractFormFields(file);
+      if (formResult.success && formResult.data) {
+        setFormFields(formResult.data.fields || []);
+      }
 
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load PDF');
@@ -37,10 +74,198 @@ export default function EditorPage() {
     }
   };
 
+  // Handle file removal
   const handleRemoveFile = () => {
+    if (pdfUrl) {
+      URL.revokeObjectURL(pdfUrl);
+    }
     setPdfFile(null);
+    setPdfUrl(null);
     setError(null);
+    setFormFields([]);
+    setOcrResults(null);
+    setCurrentPage(1);
+    setTotalPages(0);
   };
+
+  // Handle PDF load complete
+  const handlePDFLoadComplete = (numPages: number) => {
+    setTotalPages(numPages);
+  };
+
+  // Handle page change
+  const handlePageChange = (page: number, total: number) => {
+    setCurrentPage(page);
+    if (total !== totalPages) {
+      setTotalPages(total);
+    }
+  };
+
+  // Handle toolbar actions
+  const handleToolbarAction = async (action: 'sign' | 'fill-forms' | 'ocr' | 'download' | 'undo' | 'redo') => {
+    switch (action) {
+      case 'sign':
+        setShowSignatureCanvas(true);
+        break;
+
+      case 'fill-forms':
+        if (formFields.length === 0) {
+          alert('No form fields found in this PDF');
+        } else {
+          setShowFormFiller(true);
+        }
+        break;
+
+      case 'ocr':
+        await handleOCR();
+        break;
+
+      case 'download':
+        await handleDownload();
+        break;
+
+      case 'undo':
+        // TODO: Implement undo functionality
+        console.log('Undo action');
+        break;
+
+      case 'redo':
+        // TODO: Implement redo functionality
+        console.log('Redo action');
+        break;
+    }
+  };
+
+  // Handle signature save
+  const handleSignatureSave = async (dataUrl: string) => {
+    if (!pdfFile) return;
+
+    try {
+      setLoading(true);
+
+      // Save signature for reuse
+      setSavedSignatures(prev => [...prev, dataUrl]);
+
+      // Embed signature in PDF (center of current page)
+      const modifiedPdfBytes = await embedSignatureInPDF(
+        pdfFile,
+        dataUrl,
+        currentPage - 1, // 0-indexed
+        { x: 200, y: 400 }, // Default position
+        { width: 200, height: 100 } // Default size
+      );
+
+      // Create new file from modified bytes
+      const blob = new Blob([modifiedPdfBytes.buffer as ArrayBuffer], { type: 'application/pdf' });
+      const modifiedFile = new File(
+        [blob],
+        pdfFile.name,
+        { type: 'application/pdf' }
+      );
+
+      // Update PDF
+      const newUrl = URL.createObjectURL(modifiedFile);
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl);
+      }
+      setPdfFile(modifiedFile);
+      setPdfUrl(newUrl);
+
+      setShowSignatureCanvas(false);
+      alert('Signature added successfully!');
+    } catch (err) {
+      console.error('Error adding signature:', err);
+      alert('Failed to add signature. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle form fill
+  const handleFormFill = async (fieldData: Record<string, string>) => {
+    if (!pdfFile) return;
+
+    try {
+      setLoading(true);
+
+      const result = await fillFormFields(pdfFile, fieldData);
+
+      if (result.success && result.data) {
+        // Create new file from filled PDF
+        const filledFile = new File(
+          [result.data],
+          pdfFile.name,
+          { type: 'application/pdf' }
+        );
+
+        // Update PDF
+        const newUrl = URL.createObjectURL(filledFile);
+        if (pdfUrl) {
+          URL.revokeObjectURL(pdfUrl);
+        }
+        setPdfFile(filledFile);
+        setPdfUrl(newUrl);
+
+        setShowFormFiller(false);
+        alert('Form fields filled successfully!');
+      } else {
+        throw new Error(result.error || 'Failed to fill form');
+      }
+    } catch (err) {
+      console.error('Error filling form:', err);
+      alert('Failed to fill form. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle OCR
+  const handleOCR = async () => {
+    if (!pdfFile) return;
+
+    try {
+      setOcrLoading(true);
+      setShowOCRPanel(true);
+
+      const result = await performSmartOCR(pdfFile);
+
+      if (result.success && result.data) {
+        setOcrResults(result.data);
+      } else {
+        throw new Error(result.error || 'OCR failed');
+      }
+    } catch (err) {
+      console.error('Error performing OCR:', err);
+      alert('OCR failed. Please try again.');
+      setShowOCRPanel(false);
+    } finally {
+      setOcrLoading(false);
+    }
+  };
+
+  // Handle download
+  const handleDownload = () => {
+    if (!pdfFile) return;
+
+    const timestamp = new Date().toISOString().split('T')[0];
+    const filename = `edited-${timestamp}-${pdfFile.name}`;
+
+    const url = URL.createObjectURL(pdfFile);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) {
+        URL.revokeObjectURL(pdfUrl);
+      }
+    };
+  }, [pdfUrl]);
 
   return (
     <>
@@ -69,29 +294,33 @@ export default function EditorPage() {
               >
                 Close File
               </button>
-              <button
-                className="btn btn-primary text-sm"
-                disabled={loading}
-              >
-                Download PDF
-              </button>
             </>
           )}
         </div>
       </header>
 
+      {/* Toolbar */}
+      {pdfFile && !loading && !error && (
+        <Toolbar
+          currentTool={currentTool}
+          onToolChange={setCurrentTool}
+          onAction={handleToolbarAction}
+          disabled={loading || ocrLoading}
+        />
+      )}
+
       {/* Main Editor Area */}
-      <main className="flex-1 overflow-hidden bg-slate-100">
+      <main className="flex-1 overflow-hidden bg-slate-100 flex">
         {loading && (
-          <div className="h-full flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center">
             <LoadingSpinner />
           </div>
         )}
 
         {error && (
-          <div className="h-full flex items-center justify-center">
+          <div className="flex-1 flex items-center justify-center">
             <div className="card max-w-md text-center">
-              <div className="text-red-500 text-5xl mb-4">⚠️</div>
+              <div className="text-red-500 text-5xl mb-4">⚠</div>
               <h2 className="text-xl font-semibold mb-2 text-slate-900">Error Loading PDF</h2>
               <p className="text-slate-600 mb-4">{error}</p>
               <button
@@ -105,7 +334,7 @@ export default function EditorPage() {
         )}
 
         {!pdfFile && !loading && !error && (
-          <div className="h-full flex items-center justify-center p-4">
+          <div className="flex-1 flex items-center justify-center p-4">
             <div className="max-w-2xl w-full">
               <div className="text-center mb-8">
                 <h1 className="text-4xl font-bold mb-4 text-slate-900">
@@ -140,27 +369,98 @@ export default function EditorPage() {
           </div>
         )}
 
-        {pdfFile && !loading && !error && (
-          <div className="h-full flex items-center justify-center p-8">
-            <div className="card max-w-2xl text-center">
-              <div className="text-blue-600 text-6xl mb-4">📄</div>
-              <h2 className="text-2xl font-bold mb-4 text-slate-900">
-                PDF Loaded Successfully
-              </h2>
-              <p className="text-slate-600 mb-2">
-                <strong>File:</strong> {pdfFile.name}
-              </p>
-              <p className="text-slate-600 mb-6">
-                <strong>Size:</strong> {(pdfFile.size / 1024 / 1024).toFixed(2)} MB
-              </p>
-              <p className="text-sm text-slate-500 bg-slate-50 p-4 rounded-md">
-                <strong>Note:</strong> PDF viewer and editing tools will be integrated in the next phase.
-                This screen confirms the file upload and validation is working correctly.
-              </p>
-            </div>
-          </div>
+        {pdfFile && pdfUrl && !loading && !error && (
+          <>
+            {/* Page Navigator */}
+            <PageNavigator
+              fileUrl={pdfUrl}
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+              className="w-64"
+            />
+
+            {/* PDF Viewer */}
+            <PDFViewer
+              fileUrl={pdfUrl}
+              onPageChange={handlePageChange}
+              onLoadComplete={handlePDFLoadComplete}
+              className="flex-1"
+            />
+
+            {/* Side Panel (OCR Results) */}
+            {showOCRPanel && (
+              <div className="w-80 bg-white border-l border-slate-200 overflow-y-auto">
+                <div className="p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-slate-900">OCR Results</h3>
+                    <button
+                      onClick={() => setShowOCRPanel(false)}
+                      className="p-1 text-slate-600 hover:bg-slate-100 rounded"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+
+                  {ocrLoading && (
+                    <div className="flex items-center justify-center py-8">
+                      <LoadingSpinner />
+                    </div>
+                  )}
+
+                  {!ocrLoading && ocrResults && (
+                    <div className="space-y-4">
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                        <p className="text-sm text-blue-800">
+                          <strong>Engine:</strong> {ocrResults.engine}
+                        </p>
+                        {ocrResults.confidence && (
+                          <p className="text-sm text-blue-800 mt-1">
+                            <strong>Confidence:</strong> {(ocrResults.confidence * 100).toFixed(1)}%
+                          </p>
+                        )}
+                      </div>
+
+                      {ocrResults.pages && ocrResults.pages.map((page: any, idx: number) => (
+                        <div key={idx} className="border border-slate-200 rounded-lg p-3">
+                          <h4 className="text-sm font-semibold mb-2">Page {page.page + 1}</h4>
+                          <p className="text-sm text-slate-700 whitespace-pre-wrap">
+                            {page.text}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </>
         )}
       </main>
+
+      {/* Signature Canvas Modal */}
+      {showSignatureCanvas && (
+        <SignatureCanvas
+          onSave={handleSignatureSave}
+          onCancel={() => setShowSignatureCanvas(false)}
+        />
+      )}
+
+      {/* Form Filler Modal */}
+      {showFormFiller && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="max-w-3xl w-full max-h-screen overflow-y-auto">
+            <FormFiller
+              fields={formFields}
+              onFill={handleFormFill}
+              onCancel={() => setShowFormFiller(false)}
+              loading={loading}
+            />
+          </div>
+        </div>
+      )}
     </>
   );
 }

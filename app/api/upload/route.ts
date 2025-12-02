@@ -59,11 +59,6 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// Optional: Add configuration for larger file uploads
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: '50mb',
-    },
-  },
-};
+// Configuration for larger file uploads (Next.js 14+ format)
+export const runtime = 'nodejs';
+export const maxDuration = 60; // 60 seconds timeout
