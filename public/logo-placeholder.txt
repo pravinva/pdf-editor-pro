@@ -1,0 +1,15 @@
+Logo Placeholder
+================
+
+This directory should contain:
+- logo.png (main application logo)
+- favicon.ico (browser favicon)
+- og-image.png (Open Graph image for social sharing)
+
+Recommended sizes:
+- Logo: 200x50px (transparent background)
+- Favicon: 32x32px
+- OG Image: 1200x630px
+
+For now, the application uses text-based branding ("PDF Editor Pro").
+Replace with actual logo files when ready.
