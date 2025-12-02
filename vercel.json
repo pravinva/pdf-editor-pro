@@ -1,0 +1,217 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "version": 2,
+  "name": "pdf-editor-pro",
+  "buildCommand": "npm run build",
+  "devCommand": "npm run dev",
+  "installCommand": "npm install",
+  "framework": "nextjs",
+
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_APP_URL": "@app-url",
+      "DATABRICKS_HOST": "@databricks-host",
+      "DATABRICKS_TOKEN": "@databricks-token",
+      "BLOB_READ_WRITE_TOKEN": "@blob-token"
+    }
+  },
+
+  "env": {
+    "NODE_ENV": "production",
+    "NEXT_TELEMETRY_DISABLED": "1"
+  },
+
+  "functions": {
+    "api/**/*.py": {
+      "runtime": "python3.9",
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "api/**"
+    },
+    "api/**/*.ts": {
+      "runtime": "nodejs18.x",
+      "memory": 1024,
+      "maxDuration": 30
+    },
+    "api/**/*.js": {
+      "runtime": "nodejs18.x",
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
+
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+        }
+      ]
+    },
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, no-cache, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Methods",
+          "value": "POST, GET, OPTIONS"
+        },
+        {
+          "key": "Access-Control-Allow-Headers",
+          "value": "Content-Type, Authorization"
+        }
+      ]
+    }
+  ],
+
+  "redirects": [
+    {
+      "source": "/api/python/:path*",
+      "destination": "/api/:path*",
+      "permanent": false
+    }
+  ],
+
+  "rewrites": [
+    {
+      "source": "/api/ocr",
+      "destination": "/api/ocr.py"
+    },
+    {
+      "source": "/api/extract-forms",
+      "destination": "/api/extract_forms.py"
+    },
+    {
+      "source": "/api/fill-forms",
+      "destination": "/api/fill_forms.py"
+    },
+    {
+      "source": "/api/validate-pdf",
+      "destination": "/api/validate_pdf.py"
+    }
+  ],
+
+  "routes": [
+    {
+      "src": "/api/ocr",
+      "methods": ["POST", "OPTIONS"],
+      "dest": "/api/ocr.py"
+    },
+    {
+      "src": "/api/extract-forms",
+      "methods": ["POST", "OPTIONS"],
+      "dest": "/api/extract_forms.py"
+    },
+    {
+      "src": "/api/fill-forms",
+      "methods": ["POST", "OPTIONS"],
+      "dest": "/api/fill_forms.py"
+    },
+    {
+      "src": "/api/validate-pdf",
+      "methods": ["POST", "OPTIONS"],
+      "dest": "/api/validate_pdf.py"
+    }
+  ],
+
+  "regions": ["iad1"],
+
+  "public": false,
+
+  "cleanUrls": true,
+  "trailingSlash": false,
+
+  "github": {
+    "enabled": true,
+    "autoAlias": true,
+    "silent": false,
+    "autoJobCancelation": true
+  },
+
+  "crons": [
+    {
+      "path": "/api/cleanup",
+      "schedule": "0 * * * *"
+    }
+  ],
+
+  "outputDirectory": ".next",
+
+  "ignoreCommand": "git diff --quiet HEAD^ HEAD ./",
+
+  "installCommand": "npm ci --legacy-peer-deps",
+
+  "buildCommand": "next build",
+
+  "devCommand": "next dev --port $PORT",
+
+  "framework": "nextjs",
+
+  "nodejs": {
+    "version": "18.x",
+    "packageManager": "npm"
+  },
+
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_APP_URL": "@app-url",
+      "DATABRICKS_HOST": "@databricks-host",
+      "DATABRICKS_TOKEN": "@databricks-token",
+      "BLOB_READ_WRITE_TOKEN": "@blob-token",
+      "PYTHON_VERSION": "3.9"
+    }
+  },
+
+  "functions": {
+    "api/ocr.py": {
+      "runtime": "python3.9",
+      "memory": 3008,
+      "maxDuration": 300,
+      "includeFiles": "api/**/*.py"
+    },
+    "api/extract_forms.py": {
+      "runtime": "python3.9",
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "api/**/*.py"
+    },
+    "api/fill_forms.py": {
+      "runtime": "python3.9",
+      "memory": 1024,
+      "maxDuration": 60,
+      "includeFiles": "api/**/*.py"
+    },
+    "api/validate_pdf.py": {
+      "runtime": "python3.9",
+      "memory": 512,
+      "maxDuration": 30,
+      "includeFiles": "api/**/*.py"
+    }
+  },
+
+  "python": {
+    "runtime": "python3.9",
+    "pipInstall": "requirements.txt"
+  }
+}

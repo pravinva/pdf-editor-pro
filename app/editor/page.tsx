@@ -7,6 +7,7 @@ import LoadingSpinner from '@/components/LoadingSpinner';
 import PDFViewer from '@/components/PDFViewer';
 import SignatureCanvas from '@/components/SignatureCanvas';
 import FormFiller from '@/components/FormFiller';
+import OCRPanel from '@/components/OCRPanel';
 import Toolbar, { Tool } from '@/components/Toolbar';
 import PageNavigator from '@/components/PageNavigator';
 import {
@@ -388,53 +389,15 @@ export default function EditorPage() {
               className="flex-1"
             />
 
-            {/* Side Panel (OCR Results) */}
+            {/* OCR Panel */}
             {showOCRPanel && (
-              <div className="w-80 bg-white border-l border-slate-200 overflow-y-auto">
-                <div className="p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-slate-900">OCR Results</h3>
-                    <button
-                      onClick={() => setShowOCRPanel(false)}
-                      className="p-1 text-slate-600 hover:bg-slate-100 rounded"
-                    >
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {ocrLoading && (
-                    <div className="flex items-center justify-center py-8">
-                      <LoadingSpinner />
-                    </div>
-                  )}
-
-                  {!ocrLoading && ocrResults && (
-                    <div className="space-y-4">
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                        <p className="text-sm text-blue-800">
-                          <strong>Engine:</strong> {ocrResults.engine}
-                        </p>
-                        {ocrResults.confidence && (
-                          <p className="text-sm text-blue-800 mt-1">
-                            <strong>Confidence:</strong> {(ocrResults.confidence * 100).toFixed(1)}%
-                          </p>
-                        )}
-                      </div>
-
-                      {ocrResults.pages && ocrResults.pages.map((page: any, idx: number) => (
-                        <div key={idx} className="border border-slate-200 rounded-lg p-3">
-                          <h4 className="text-sm font-semibold mb-2">Page {page.page + 1}</h4>
-                          <p className="text-sm text-slate-700 whitespace-pre-wrap">
-                            {page.text}
-                          </p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
+              <OCRPanel
+                results={ocrResults}
+                loading={ocrLoading}
+                onClose={() => setShowOCRPanel(false)}
+                onRetry={handleOCR}
+                pdfFileName={pdfFile?.name}
+              />
             )}
           </>
         )}
